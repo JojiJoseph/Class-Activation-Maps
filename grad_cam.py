@@ -4,16 +4,31 @@ import numpy as np
 import torch
 
 def generate_cam(model, image_tensor, class_idx):
-    model.eval()
+    # model.eval()
+    for layer in model.modules():
+        if isinstance(layer, torch.nn.modules.batchnorm.BatchNorm2d):
+            layer.eval()
     feature_map = None
     def activation_hook_func(module, inp, out):
         nonlocal feature_map
         feature_map = inp[0].detach()
+
+    
+    grads = None
+    def backward_hook(module, grad_in, grad_out):
+        nonlocal grads
+        grads = torch.clamp(grad_out[0], 0).detach()
     
     model.avgpool.register_forward_hook(activation_hook_func)
+    
+    model.avgpool.register_backward_hook(backward_hook)
+    # print(model)
 
     scores = model(image_tensor)
     # print(torch.argmax(scores), "argmax")
+    # exit()
+    loss = scores[0, class_idx]
+    loss.backward()
     # exit()
 
     weights = model.fc.weight
@@ -21,7 +36,9 @@ def generate_cam(model, image_tensor, class_idx):
     weights = weights[class_idx][None   , :, None, None]
 
 
-    cam = weights * feature_map
+    cam = grads * feature_map
+    # print(grads.shape, weights.shape)
+    # exit()
 
 
     cam = cam.detach().numpy()
